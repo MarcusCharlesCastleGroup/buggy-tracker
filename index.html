@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Jetquay Buggy Tracker</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #0f1117;
+      color: #e0e0e0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      background: #1a1d27;
+      border-bottom: 1px solid #2a2d3a;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    .header-left { display: flex; align-items: center; gap: 10px; }
+    .logo { font-size: 15px; font-weight: 700; color: #fff; }
+    .logo span { color: #4ade80; }
+    .live-badge {
+      display: flex; align-items: center; gap: 5px;
+      background: #0f2a1a; border: 1px solid #4ade80;
+      border-radius: 20px; padding: 3px 10px;
+      font-size: 10px; color: #4ade80; font-weight: 600;
+    }
+    .live-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: #4ade80;
+      animation: blink 1.5s ease-in-out infinite;
+    }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+    .header-right {
+      display: flex; align-items: center; gap: 16px;
+      font-size: 11px; color: #6b7280;
+    }
+
+    /* countdown ring */
+    .refresh-wrap {
+      display: flex; align-items: center; gap: 8px;
+    }
+    .ring-box {
+      position: relative; width: 34px; height: 34px;
+    }
+    .ring-box svg { transform: rotate(-90deg); }
+    .ring-track { fill: none; stroke: #2a2d3a; stroke-width: 3; }
+    .ring-fill  { fill: none; stroke: #4ade80; stroke-width: 3;
+                  stroke-linecap: round;
+                  stroke-dasharray: 88; stroke-dashoffset: 0;
+                  transition: stroke-dashoffset 1s linear, stroke 0.3s; }
+    .ring-label {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 9px; font-weight: 700; color: #4ade80;
+    }
+
+    .last-ok {
+      font-size: 11px; color: #6b7280;
+    }
+    .last-ok span { color: #9ca3af; }
+    .flash { animation: flashGreen 0.8s ease; }
+    @keyframes flashGreen {
+      0%   { color: #4ade80; }
+      100% { color: #9ca3af; }
+    }
+
+    .main { display: flex; flex: 1; overflow: hidden; }
+
+    .sidebar {
+      width: 190px;
+      background: #1a1d27;
+      border-right: 1px solid #2a2d3a;
+      display: flex; flex-direction: column;
+      flex-shrink: 0; overflow-y: auto;
+    }
+    .sidebar-header {
+      padding: 9px 12px;
+      font-size: 10px; font-weight: 600;
+      color: #6b7280; text-transform: uppercase; letter-spacing: 1px;
+      border-bottom: 1px solid #2a2d3a;
+    }
+    .buggy-list { flex: 1; }
+    .buggy-item {
+      padding: 7px 10px;
+      border-bottom: 1px solid #1e2130;
+      cursor: pointer;
+      transition: background 0.15s;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .buggy-item:hover { background: #212436; }
+    .buggy-item.selected { background: #1a2a1a; border-left: 3px solid #4ade80; }
+    .buggy-icon {
+      width: 26px; height: 26px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px; font-weight: 700; color: #fff; flex-shrink: 0;
+    }
+    .buggy-info { flex: 1; min-width: 0; }
+    .buggy-name { font-size: 12px; font-weight: 600; color: #f0f0f0; }
+    .buggy-time { font-size: 10px; margin-top: 1px; }
+    .fresh { color: #4ade80; }
+    .stale { color: #f59e0b; }
+    .old   { color: #ef4444; }
+
+    .stats-bar {
+      padding: 9px 12px; border-top: 1px solid #2a2d3a;
+      display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+    }
+    .stat { text-align: center; }
+    .stat-val { font-size: 17px; font-weight: 700; color: #4ade80; }
+    .stat-label { font-size: 9px; color: #6b7280; text-transform: uppercase; }
+
+    #map { flex: 1; }
+
+    .info-box {
+      background: #1a1d27; border: 1px solid #2a2d3a;
+      border-radius: 8px; padding: 8px 12px; font-size: 12px; min-width: 120px;
+    }
+    .info-box strong { color: #4ade80; font-size: 13px; display: block; margin-bottom: 2px; }
+    .info-box span { color: #9ca3af; display: block; }
+  </style>
+
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyB41DRUbKWJHPxaFjMAwdrzWzbVKartNGg&callback=initMap" async defer></script>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-app.js";
+    import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-database.js";
+    const firebaseConfig = {
+      apiKey: "AIzaSyCuPNfoAO2KPRAsbLBFNCzWWlm_FSPnD0k",
+      authDomain: "realtime-database-1569d.firebaseapp.com",
+      databaseURL: "https://realtime-database-1569d-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "realtime-database-1569d",
+      storageBucket: "realtime-database-1569d.firebasestorage.app",
+      messagingSenderId: "509575468018",
+      appId: "1:509575468018:web:012dc8d253a621b8ddd16b"
+    };
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+    window.firebaseReady = true;
+    window.firebaseDB = db;
+    window.firebaseRef = ref;
+    window.firebaseOnValue = onValue;
+    window.dispatchEvent(new Event('firebase-ready'));
+  </script>
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <div class="logo">JET<span>QUAY</span> Fleet Tracker</div>
+    <div class="live-badge"><div class="live-dot"></div> LIVE</div>
+  </div>
+  <div class="header-right">
+    <div class="last-ok">Last sync: <span id="last-update">—</span></div>
+    <div class="refresh-wrap">
+      <div class="ring-box">
+        <svg width="34" height="34" viewBox="0 0 34 34">
+          <circle class="ring-track" cx="17" cy="17" r="14"/>
+          <circle class="ring-fill" id="ring" cx="17" cy="17" r="14"/>
+        </svg>
+        <div class="ring-label" id="ring-label">30</div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="main">
+  <div class="sidebar">
+    <div class="sidebar-header">Buggies</div>
+    <div class="buggy-list" id="buggy-list"></div>
+    <div class="stats-bar">
+      <div class="stat">
+        <div class="stat-val" id="stat-total">—</div>
+        <div class="stat-label">Total</div>
+      </div>
+      <div class="stat">
+        <div class="stat-val" id="stat-fresh">—</div>
+        <div class="stat-label">Fresh</div>
+      </div>
+    </div>
+  </div>
+  <div id="map"></div>
+</div>
+
+<script>
+  const BUGGY_COLORS = {
+    Buggy_2:'#4ade80', Buggy_3:'#60a5fa', Buggy_4:'#f472b6',
+    Buggy_5:'#fb923c', Buggy_6:'#a78bfa', Buggy_8:'#34d399',
+    Buggy_9:'#fbbf24', Buggy_10:'#f87171', Buggy_11:'#38bdf8'
+  };
+
+  const POLL = 30; // seconds — match your push_to_firebase.py interval
+  let map, markers = {}, infoWindows = {};
+  let buggies = {};
+  let countdown = POLL;
+  let lastUpdateTime = null;
+
+  // ── Countdown ring ──────────────────────────────────────
+  const ring = document.getElementById('ring');
+  const ringLabel = document.getElementById('ring-label');
+  const CIRCUMFERENCE = 2 * Math.PI * 14; // 87.96
+
+  function setRing(secs) {
+    const frac = secs / POLL;
+    ring.style.strokeDashoffset = CIRCUMFERENCE * (1 - frac);
+    ring.style.stroke = secs <= 5 ? '#f59e0b' : '#4ade80';
+    ringLabel.style.color = secs <= 5 ? '#f59e0b' : '#4ade80';
+    ringLabel.textContent = secs;
+  }
+
+  setInterval(() => {
+    countdown = Math.max(0, countdown - 1);
+    setRing(countdown);
+  }, 1000);
+
+  function onNewData() {
+    countdown = POLL;
+    setRing(POLL);
+    const now = new Date();
+    const ts = now.toLocaleTimeString();
+    const el = document.getElementById('last-update');
+    el.textContent = ts;
+    el.classList.remove('flash');
+    void el.offsetWidth; // reflow to restart animation
+    el.classList.add('flash');
+  }
+
+  // ── Map init ────────────────────────────────────────────
+  window.initMap = function() {
+    map = new google.maps.Map(document.getElementById('map'), {
+      center: { lat: 1.3515, lng: 103.9882 },
+      zoom: 17,
+      mapTypeId: 'satellite',
+      streetViewControl: false,
+      fullscreenControl: true,
+      mapTypeControl: true
+    });
+    if (window.pendingBuggies) updateMap(window.pendingBuggies);
+  };
+
+  // ── Overlap spreading ───────────────────────────────────
+  // Groups pins that are within ~8m of each other and fans them out
+  function spreadOverlaps(positions) {
+    const THRESHOLD = 0.00008; // ~8 metres in degrees
+    const SPREAD    = 0.00012; // spread radius
+    const adjusted  = {};
+    const ids = Object.keys(positions);
+
+    // Group by proximity
+    const used = new Set();
+    ids.forEach(id => {
+      if (used.has(id)) return;
+      const group = [id];
+      used.add(id);
+      ids.forEach(other => {
+        if (used.has(other)) return;
+        const dlat = positions[id].lat - positions[other].lat;
+        const dlng = positions[id].lng - positions[other].lng;
+        if (Math.sqrt(dlat*dlat + dlng*dlng) < THRESHOLD) {
+          group.push(other);
+          used.add(other);
+        }
+      });
+
+      if (group.length === 1) {
+        adjusted[id] = { ...positions[id] };
+      } else {
+        // Fan out in a circle
+        group.forEach((gid, i) => {
+          const angle = (2 * Math.PI * i) / group.length;
+          adjusted[gid] = {
+            lat: positions[id].lat + SPREAD * Math.cos(angle),
+            lng: positions[id].lng + SPREAD * Math.sin(angle)
+          };
+        });
+      }
+    });
+    return adjusted;
+  }
+
+  // ── Helpers ─────────────────────────────────────────────
+  function timeAgo(isoString) {
+    const diff = (Date.now() - new Date(isoString)) / 1000;
+    if (diff < 60) return `${Math.round(diff)}s ago`;
+    if (diff < 3600) return `${Math.round(diff/60)}m ago`;
+    return `${Math.round(diff/3600)}h ago`;
+  }
+  function freshClass(isoString) {
+    const diff = (Date.now() - new Date(isoString)) / 1000;
+    if (diff < 1800) return 'fresh';
+    if (diff < 7200) return 'stale';
+    return 'old';
+  }
+  function makePinSVG(color, number) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="34" viewBox="0 0 28 34">
+      <path d="M14 0C6.27 0 0 6.27 0 14C0 23 14 34 14 34C14 34 28 23 28 14C28 6.27 21.73 0 14 0Z" fill="${color}"/>
+      <circle cx="14" cy="13" r="9" fill="rgba(0,0,0,0.2)"/>
+      <text x="14" y="18" text-anchor="middle" font-family="'Segoe UI',sans-serif" font-size="10" font-weight="700" fill="white">${number}</text>
+    </svg>`;
+  }
+
+  // ── Main update ─────────────────────────────────────────
+  function updateMap(data) {
+    buggies = data;
+    if (!map) { window.pendingBuggies = data; return; }
+
+    // Collect raw positions
+    const rawPos = {};
+    Object.keys(data).forEach(id => { rawPos[id] = { lat: data[id].lat, lng: data[id].lng }; });
+    const adjPos = spreadOverlaps(rawPos);
+
+    const list = document.getElementById('buggy-list');
+    list.innerHTML = '';
+    let freshCount = 0;
+
+    const sortedKeys = Object.keys(data).sort((a, b) =>
+      parseInt(a.replace('Buggy_','')) - parseInt(b.replace('Buggy_',''))
+    );
+
+    sortedKeys.forEach(id => {
+      const b = data[id];
+      const color = BUGGY_COLORS[id] || '#4ade80';
+      const pos = adjPos[id];
+      const num = id.replace('Buggy_', '');
+      const label = `Buggy ${num}`;
+      const fc = freshClass(b.timestamp);
+      const ago = timeAgo(b.timestamp);
+      if (fc === 'fresh') freshCount++;
+
+      // Sidebar item
+      const item = document.createElement('div');
+      item.className = 'buggy-item';
+      item.id = `item-${id}`;
+      item.innerHTML = `
+        <div class="buggy-icon" style="background:${color};">${num}</div>
+        <div class="buggy-info">
+          <div class="buggy-name">${label}</div>
+          <div class="buggy-time ${fc}">${ago}</div>
+        </div>`;
+      item.onclick = () => {
+        map.panTo(pos);
+        map.setZoom(19);
+        Object.values(infoWindows).forEach(w => w.close());
+        infoWindows[id]?.open(map, markers[id]);
+        document.querySelectorAll('.buggy-item').forEach(el => el.classList.remove('selected'));
+        item.classList.add('selected');
+      };
+      list.appendChild(item);
+
+      // Marker
+      const svgUrl = 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(makePinSVG(color, num));
+      const icon = { url: svgUrl, scaledSize: new google.maps.Size(26, 32), anchor: new google.maps.Point(13, 32) };
+
+      if (markers[id]) {
+        markers[id].setPosition(pos);
+        markers[id].setIcon(icon);
+      } else {
+        markers[id] = new google.maps.Marker({ position: pos, map, title: label, icon });
+        infoWindows[id] = new google.maps.InfoWindow();
+        markers[id].addListener('click', () => {
+          Object.values(infoWindows).forEach(w => w.close());
+          infoWindows[id].open(map, markers[id]);
+          document.querySelectorAll('.buggy-item').forEach(el => el.classList.remove('selected'));
+          document.getElementById(`item-${id}`)?.classList.add('selected');
+        });
+      }
+
+      infoWindows[id].setContent(`<div class="info-box">
+        <strong>${label}</strong>
+        <span>${ago}</span>
+      </div>`);
+    });
+
+    document.getElementById('stat-total').textContent = sortedKeys.length;
+    document.getElementById('stat-fresh').textContent = freshCount;
+    onNewData();
+  }
+
+  // Refresh sidebar time labels every 30s
+  setInterval(() => { if (Object.keys(buggies).length) updateMap(buggies); }, 30000);
+
+  // Firebase listener
+  function connectFirebase() {
+    const dbRef = window.firebaseRef(window.firebaseDB, 'buggies');
+    window.firebaseOnValue(dbRef, snapshot => {
+      const data = snapshot.val();
+      if (data) updateMap(data);
+    });
+  }
+  if (window.firebaseReady) connectFirebase();
+  else window.addEventListener('firebase-ready', connectFirebase);
+</script>
+</body>
+</html>
